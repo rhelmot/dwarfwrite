@@ -3,9 +3,16 @@ import shutil
 import subprocess
 import tempfile
 
-def dump_elf(result, arch, outfile, infile=None, result_update=None):
-    if result_update is None:
-        result_update = []
+from elftools.elf.elffile import ELFFile
+
+def dump_elf(result, arch, outfile, infile=None):
+    result_update = {}
+    if infile is not None:
+        with open(infile, 'rb') as fp:
+            elf = ELFFile(fp)
+            for section in elf.iter_sections():
+                if section.name in result:
+                    result_update[section.name] = result.pop(section.name)
 
     tmp = tempfile.mkdtemp()
     with open(os.path.join(tmp, 'zero'), 'wb') as fp:
@@ -26,10 +33,10 @@ def dump_elf(result, arch, outfile, infile=None, result_update=None):
     extra_args = []
     for f in result:
         extra_args.append('--add-section')
-        extra_args.append('.%s=%s' % (f, os.path.join(tmp, f)))
+        extra_args.append('%s=%s' % (f, os.path.join(tmp, f)))
     for f in result_update:
         extra_args.append('--update-section')
-        extra_args.append('.%s=%s' % (f, os.path.join(tmp, f)))
+        extra_args.append('%s=%s' % (f, os.path.join(tmp, f)))
     if infile is None:
         in_flags = ['--input-target=binary', '-S', '--remove-section=.data']
         in_args = [os.path.join(tmp, 'zero')]
