@@ -2,6 +2,7 @@ from elftools.dwarf import enums
 from collections import defaultdict
 
 from .serial import VALUE_PRESENT
+from . import __version__
 
 class DWARFStructurer:
     def __init__(self):
@@ -21,6 +22,16 @@ class DWARFStructurer:
         return []
     def unit_get_language(self, handler):
         return None
+    def unit_get_addr(self, handler):
+        return None
+    def unit_get_end_addr(self, handler):
+        return None
+    def unit_get_lines(self, handler):
+        return None
+    def unit_get_comp_dir(self, handler):
+        return None
+    def unit_get_producer(self, handler):
+        return 'dwarfwrite ' + '.'.join(str(v) for v in __version__)
     def function_get_parameters(self, handler):
         return []
     def function_get_return_type(self, handler):
@@ -33,6 +44,8 @@ class DWARFStructurer:
         return None
     def function_get_variables(self, handler):
         return []
+    def function_get_noreturn(self, handler):
+        return False
     def parameter_get_name(self, handler):
         return None
     def parameter_get_type(self, handler):
@@ -113,6 +126,11 @@ class DWARFStructurer:
                 "tag": enums.ENUM_DW_TAG['DW_TAG_compile_unit'],
                 enums.ENUM_DW_AT['DW_AT_name']: self.unit_get_filename(unit),
                 enums.ENUM_DW_AT['DW_AT_language']: self.unit_get_language(unit),
+                enums.ENUM_DW_AT['DW_AT_low_pc']: self.unit_get_addr(unit),
+                enums.ENUM_DW_AT['DW_AT_high_pc']: self.unit_get_end_addr(unit),
+                enums.ENUM_DW_AT['DW_AT_comp_dir']: self.unit_get_comp_dir(unit),
+                enums.ENUM_DW_AT['DW_AT_stmt_list']: self.unit_get_lines(unit),
+                enums.ENUM_DW_AT['DW_AT_producer']: self.unit_get_producer(unit),
                 "children": [],
             }
             self.current_unit = unit_result
@@ -145,6 +163,8 @@ class DWARFStructurer:
                         for func_param in self.function_get_parameters(func)
                     ]
                 }
+                if self.function_get_noreturn(func):
+                    func_result[enums.ENUM_DW_AT['DW_AT_noreturn']] = VALUE_PRESENT
                 func_result['children'].extend({
                     "tag": enums.ENUM_DW_TAG['DW_TAG_variable'],
                     enums.ENUM_DW_AT['DW_AT_name']: self.variable_get_name(func_var),

@@ -4,9 +4,10 @@ import pprint
 
 import archinfo
 
-from elftools.dwarf import enums, dwarf_expr
+from elftools.dwarf import enums, dwarf_expr, lineprogram
 
 from .expr_serial import DWARFExprSerializer
+from .line_serial import serialize_states
 
 DWARF_VERSION = 4
 VALUE_PRESENT = object()
@@ -33,6 +34,7 @@ class _Serializer:
             '.debug_abbrev': bytearray(),
             '.debug_str': bytearray(1),
             '.debug_loc': bytearray(),
+            '.debug_line': bytearray(),
         }
         self.arch = arch
         self.expr_serializer = DWARFExprSerializer(arch)
@@ -47,11 +49,14 @@ class _Serializer:
         self.info_offset = 0
         self.pending_references = {} # id -> (object, [offset to insert reference])
 
+        self.current_unit = None
+
     @property
     def current_offset(self):
         return len(self.result['.debug_info']) - self.info_offset
 
     def write_unit(self, unit):
+        self.current_unit = unit
         self.info_offset = len(self.result['.debug_info'])
         abbrev_offset = len(self.result['.debug_abbrev'])
         endness = '<' if self.arch.memory_endness == archinfo.Endness.LE else '>'
@@ -150,6 +155,8 @@ class _Serializer:
             return enums.ENUM_DW_FORM['DW_FORM_addr']
         if type(attr) is list and attr and type(attr[0]) is LocationEntry:
             return enums.ENUM_DW_FORM['DW_FORM_sec_offset']
+        if type(attr) is list and attr and type(attr[0]) is lineprogram.LineState:
+            return enums.ENUM_DW_FORM['DW_FORM_sec_offset']
         if type(attr) is int:
             if -0x80 <= attr <= 0x7f:
                 return enums.ENUM_DW_FORM['DW_FORM_data1']
@@ -215,14 +222,18 @@ class _Serializer:
                 data = bytearray()
                 offset = 0
                 for item in attr:
-                    # TODO if we start serializing compile unit low_pc attributes, we need to subtract that here
-                    data.extend(struct.pack(self.arch.struct_fmt(), item.begin_offset))
-                    data.extend(struct.pack(self.arch.struct_fmt(), item.end_offset))
+                    low_pc = self.current_unit.get(enums.ENUM_DW_AT['DW_AT_low_pc'], 0)
+                    data.extend(struct.pack(self.arch.struct_fmt(), item.begin_offset - low_pc))
+                    data.extend(struct.pack(self.arch.struct_fmt(), item.end_offset - low_pc))  # TODO is this right?
                     seq = self.expr_serializer.serialize_expr(item.location)
                     data.extend(struct.pack(self.arch.struct_fmt(2), len(seq)))
                     data.extend(seq)
                 data.extend(struct.pack(self.arch.struct_fmt(), 0))
                 data.extend(struct.pack(self.arch.struct_fmt(), 0))
+            elif type(attr) is list and type(attr[0]) is lineprogram.LineState:
+                section = '.debug_line'
+                offset = 0
+                data = serialize_states(self.arch, attr)
             else:
                 raise TypeError("Not sure what kind of section reference this is")
 

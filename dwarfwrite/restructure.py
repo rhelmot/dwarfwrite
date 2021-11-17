@@ -1,3 +1,5 @@
+import os
+
 from elftools.dwarf.compileunit import CompileUnit
 from elftools.dwarf.die import DIE, AttributeValue
 from elftools.elf.elffile import ELFFile
@@ -88,6 +90,55 @@ class ReStructurer(DWARFStructurer):
     def unit_get_functions(self, handler: CompileUnit):
         return self.filter_children(handler.get_top_DIE(), 'DW_TAG_subprogram')
 
+    def unit_get_addr(self, handler: CompileUnit):
+        return self.get_attribute(handler.get_top_DIE(), 'DW_AT_low_pc')
+
+    def unit_get_end_addr(self, handler: CompileUnit):
+        attr: AttributeValue = handler.get_top_DIE().attributes.get('DW_AT_high_pc', None)
+        if attr is None:
+            return None
+        if attr.form == 'DW_FORM_addr':
+            return Address(attr.value)
+        else:
+            return Address(attr.value + self.unit_get_addr(handler))
+
+    def unit_get_comp_dir(self, handler: CompileUnit):
+        return self.get_attribute(handler.get_top_DIE(), 'DW_AT_comp_dir')
+
+    def unit_get_lines(self, handler: CompileUnit):
+        lineprog = self.dwarf.line_program_for_CU(handler)
+        if lineprog is None:
+            return None
+
+        entries = lineprog.get_entries()
+        states = [entry.state for entry in entries if entry.state is not None]
+        if not states:
+            return None
+
+        file_cache = {}
+        for state in states:
+            if state.file in file_cache:
+                filename = file_cache[state.file]
+            else:
+                file_entry = lineprog.header['file_entry'][state.file - 1]
+                if file_entry["dir_index"] == 0:
+                    filename = file_entry.name.decode()
+                else:
+                    filename = os.path.join(
+                        lineprog.header["include_directory"][file_entry["dir_index"] - 1].decode(),
+                        file_entry.name.decode())
+                file_cache[state.file] = filename
+
+            state.file = filename
+
+        return states
+
+    def unit_get_producer(self, handler: CompileUnit):
+        result = self.get_attribute(handler.get_top_DIE(), 'DW_AT_producer')
+        if result is None:
+            result = super().unit_get_producer(handler)
+        return result
+
     def function_get_addr(self, handler: DIE):
         return self.get_attribute(handler, 'DW_AT_low_pc')
 
@@ -111,6 +162,9 @@ class ReStructurer(DWARFStructurer):
 
     def function_get_variables(self, handler):
         return self.filter_children(handler, 'DW_TAG_variable')
+
+    def function_get_noreturn(self, handler):
+        return handler.attributes.get('DW_AT_noreturn', False)
 
     def parameter_get_name(self, handler):
         return self.get_attribute(handler, 'DW_AT_name')
