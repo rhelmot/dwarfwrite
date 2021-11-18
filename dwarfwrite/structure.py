@@ -1,7 +1,7 @@
 from elftools.dwarf import enums
 from collections import defaultdict
 
-from .serial import VALUE_PRESENT
+from .serial import VALUE_PRESENT, Address
 from . import __version__
 
 class DWARFStructurer:
@@ -22,30 +22,34 @@ class DWARFStructurer:
         return []
     def unit_get_language(self, handler):
         return None
-    def unit_get_addr(self, handler):
-        return None
-    def unit_get_end_addr(self, handler):
-        return None
+    def unit_get_ranges(self, handler):
+        return []
     def unit_get_lines(self, handler):
         return None
     def unit_get_comp_dir(self, handler):
         return None
     def unit_get_producer(self, handler):
         return 'dwarfwrite ' + '.'.join(str(v) for v in __version__)
-    def function_get_parameters(self, handler):
-        return []
     def function_get_return_type(self, handler):
         return None
     def function_get_name(self, handler):
         return None
-    def function_get_addr(self, handler):
-        return None
-    def function_get_end_addr(self, handler):
-        return None
-    def function_get_variables(self, handler):
+    def function_get_ranges(self, handler):
         return []
     def function_get_noreturn(self, handler):
         return False
+    def function_get_parameters(self, handler):
+        return []
+    def function_get_variables(self, handler):
+        return []
+    def function_get_lexicalblocks(self, handler):
+        return []
+    def lexicalblock_get_ranges(self, handler):
+        return []
+    def lexicalblock_get_variables(self, handler):
+        return []
+    def lexicalblock_get_lexicalblocks(self, handler):
+        return []
     def parameter_get_name(self, handler):
         return None
     def parameter_get_type(self, handler):
@@ -126,33 +130,26 @@ class DWARFStructurer:
                 "tag": enums.ENUM_DW_TAG['DW_TAG_compile_unit'],
                 enums.ENUM_DW_AT['DW_AT_name']: self.unit_get_filename(unit),
                 enums.ENUM_DW_AT['DW_AT_language']: self.unit_get_language(unit),
-                enums.ENUM_DW_AT['DW_AT_low_pc']: self.unit_get_addr(unit),
-                enums.ENUM_DW_AT['DW_AT_high_pc']: self.unit_get_end_addr(unit),
                 enums.ENUM_DW_AT['DW_AT_comp_dir']: self.unit_get_comp_dir(unit),
                 enums.ENUM_DW_AT['DW_AT_stmt_list']: self.unit_get_lines(unit),
                 enums.ENUM_DW_AT['DW_AT_producer']: self.unit_get_producer(unit),
                 "children": [],
             }
+            unit_result.update(self.process_ranges(self.unit_get_ranges(unit)))
+            if enums.ENUM_DW_AT['DW_AT_low_pc'] not in unit_result:
+                # TODO ??????????
+                unit_result[enums.ENUM_DW_AT['DW_AT_low_pc']] = Address(0)
             self.current_unit = unit_result
             self.type_id_cache = {}
             self.type_cache = {}
 
-            for variable in self.unit_get_variables(unit):
-                variable_result = {
-                    "tag": enums.ENUM_DW_TAG['DW_TAG_variable'],
-                    enums.ENUM_DW_AT['DW_AT_name']: self.variable_get_name(variable),
-                    enums.ENUM_DW_AT['DW_AT_location']: self.variable_get_location(variable),
-                    enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.variable_get_type(variable)),
-                }
-                unit_result['children'].append(variable_result)
+            unit_result['children'].extend(self.process_variable(var) for var in self.unit_get_variables(unit))
 
 
             for func in self.unit_get_functions(unit):
                 func_result = {
                     "tag": enums.ENUM_DW_TAG['DW_TAG_subprogram'],
                     enums.ENUM_DW_AT['DW_AT_name']: self.function_get_name(func),
-                    enums.ENUM_DW_AT['DW_AT_low_pc']: self.function_get_addr(func),
-                    enums.ENUM_DW_AT['DW_AT_high_pc']: self.function_get_end_addr(func),
                     enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.function_get_return_type(func)),
                     "children": [
                         {
@@ -163,19 +160,45 @@ class DWARFStructurer:
                         for func_param in self.function_get_parameters(func)
                     ]
                 }
+                func_result.update(self.process_ranges(self.function_get_ranges(func)))
                 if self.function_get_noreturn(func):
                     func_result[enums.ENUM_DW_AT['DW_AT_noreturn']] = VALUE_PRESENT
-                func_result['children'].extend({
-                    "tag": enums.ENUM_DW_TAG['DW_TAG_variable'],
-                    enums.ENUM_DW_AT['DW_AT_name']: self.variable_get_name(func_var),
-                    enums.ENUM_DW_AT['DW_AT_location']: self.variable_get_location(func_var),
-                    enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.variable_get_type(func_var)),
-                } for func_var in self.function_get_variables(func))
+                func_result['children'].extend(self.process_variable(func_var)
+                                               for func_var in self.function_get_variables(func))
+                func_result['children'].extend(self.process_lexical_block(block)
+                                               for block in self.function_get_lexicalblocks(func))
 
                 unit_result['children'].append(func_result)
 
             result.append(unit_result)
 
+        return result
+
+    def process_variable(self, var):
+        return {
+            "tag": enums.ENUM_DW_TAG['DW_TAG_variable'],
+            enums.ENUM_DW_AT['DW_AT_name']: self.variable_get_name(var),
+            enums.ENUM_DW_AT['DW_AT_location']: self.variable_get_location(var),
+            enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.variable_get_type(var)),
+        }
+
+    def process_lexical_block(self, block):
+        result = {
+            'tag': enums.ENUM_DW_TAG['DW_TAG_lexical_block'],
+            'children': [],
+        }
+        result.update(self.process_ranges(self.lexicalblock_get_ranges(block)))
+        result['children'].extend(self.process_variable(var) for var in self.lexicalblock_get_variables(block))
+        result['children'].extend(self.process_lexical_block(var) for var in self.lexicalblock_get_lexicalblocks(block))
+        return result
+
+    def process_ranges(self, ranges):
+        result = {}
+        if len(ranges) == 1:
+            result[enums.ENUM_DW_AT['DW_AT_low_pc']] = Address(ranges[0].begin_offset)
+            result[enums.ENUM_DW_AT['DW_AT_high_pc']] = int(ranges[0].end_offset - ranges[0].begin_offset)
+        elif len(ranges) > 1:
+            result[enums.ENUM_DW_AT['DW_AT_ranges']] = ranges
         return result
 
     def process_type(self, ty):

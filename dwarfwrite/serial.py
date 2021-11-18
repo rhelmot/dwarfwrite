@@ -5,6 +5,7 @@ import pprint
 import archinfo
 
 from elftools.dwarf import enums, dwarf_expr, lineprogram
+from elftools.dwarf.ranges import RangeEntry, BaseAddressEntry
 
 from .expr_serial import DWARFExprSerializer
 from .line_serial import serialize_states
@@ -25,6 +26,10 @@ def serialize(units, arch: archinfo.Arch):
     for unit in units:
         s.write_unit(unit)
 
+    for name, data in list(s.result.items()):
+        if not data:
+            s.result.pop(name)
+
     return s.result
 
 class _Serializer:
@@ -35,6 +40,7 @@ class _Serializer:
             '.debug_str': bytearray(1),
             '.debug_loc': bytearray(),
             '.debug_line': bytearray(),
+            '.debug_ranges': bytearray(),
         }
         self.arch = arch
         self.expr_serializer = DWARFExprSerializer(arch)
@@ -157,6 +163,8 @@ class _Serializer:
             return enums.ENUM_DW_FORM['DW_FORM_sec_offset']
         if type(attr) is list and attr and type(attr[0]) is lineprogram.LineState:
             return enums.ENUM_DW_FORM['DW_FORM_sec_offset']
+        if type(attr) is list and attr and type(attr[0]) in (RangeEntry, BaseAddressEntry):
+            return enums.ENUM_DW_FORM['DW_FORM_sec_offset']
         if type(attr) is int:
             if -0x80 <= attr <= 0x7f:
                 return enums.ENUM_DW_FORM['DW_FORM_data1']
@@ -234,6 +242,20 @@ class _Serializer:
                 section = '.debug_line'
                 offset = 0
                 data = serialize_states(self.arch, attr)
+            elif type(attr) is list and type(attr[0]) in (BaseAddressEntry, RangeEntry):
+                section = '.debug_ranges'
+                offset = 0
+                data = bytearray()
+                for item in attr:
+                    if type(item) is RangeEntry:
+                        # ummmm TODO base addresses
+                        data.extend(struct.pack(self.arch.struct_fmt(), item.begin_offset))
+                        data.extend(struct.pack(self.arch.struct_fmt(), item.end_offset))
+                    elif type(item) is BaseAddressEntry:
+                        data.extend(struct.pack(self.arch.struct_fmt(signed=True), -1))
+                        data.extend(struct.pack(self.arch.struct_fmt(), item.base_address))
+                data.extend(struct.pack(self.arch.struct_fmt(), 0))
+                data.extend(struct.pack(self.arch.struct_fmt(), 0))
             else:
                 raise TypeError("Not sure what kind of section reference this is")
 

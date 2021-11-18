@@ -1,4 +1,5 @@
 import os
+import logging
 
 from elftools.dwarf.compileunit import CompileUnit
 from elftools.dwarf.die import DIE, AttributeValue
@@ -9,8 +10,10 @@ from elftools.dwarf import locationlists
 from cle.backends.elf import ELF
 
 from .structure import DWARFStructurer
-from .serial import Address, LocationEntry, serialize
+from .serial import Address, LocationEntry, serialize, RangeEntry
 from .elf import dump_elf
+
+l = logging.getLogger(__name__)
 
 VOID = object()
 
@@ -75,6 +78,20 @@ class ReStructurer(DWARFStructurer):
             return None
         return self.expr_parser.parse_expr(expr_list)
 
+    def get_ranges(self, die):
+        ranges = die.attributes.get('DW_AT_ranges', None)
+        if ranges is not None:
+            return self.dwarf.range_lists().get_range_list_at_offset(ranges.value)
+        low_pc = die.attributes.get('DW_AT_low_pc', None)
+        high_pc = die.attributes.get('DW_AT_high_pc', None)
+        if low_pc is not None and high_pc is not None:
+            # TODO base addresses???
+            fixed_high_pc = high_pc.value if high_pc.form == 'DW_FORM_addr' else low_pc.value + high_pc.value
+            return [RangeEntry(low_pc.value, fixed_high_pc)]
+        if low_pc is not None or high_pc is not None:
+            raise Exception('Strange ranges - one but not both of low_pc + high_pc')
+        return []
+
     def root_get_units(self):
         return list(self.dwarf.iter_CUs())
 
@@ -90,17 +107,8 @@ class ReStructurer(DWARFStructurer):
     def unit_get_functions(self, handler: CompileUnit):
         return self.filter_children(handler.get_top_DIE(), 'DW_TAG_subprogram')
 
-    def unit_get_addr(self, handler: CompileUnit):
-        return self.get_attribute(handler.get_top_DIE(), 'DW_AT_low_pc')
-
-    def unit_get_end_addr(self, handler: CompileUnit):
-        attr: AttributeValue = handler.get_top_DIE().attributes.get('DW_AT_high_pc', None)
-        if attr is None:
-            return None
-        if attr.form == 'DW_FORM_addr':
-            return Address(attr.value)
-        else:
-            return Address(attr.value + self.unit_get_addr(handler))
+    def unit_get_ranges(self, handler):
+        return self.get_ranges(handler.get_top_DIE())
 
     def unit_get_comp_dir(self, handler: CompileUnit):
         return self.get_attribute(handler.get_top_DIE(), 'DW_AT_comp_dir')
@@ -139,17 +147,8 @@ class ReStructurer(DWARFStructurer):
             result = super().unit_get_producer(handler)
         return result
 
-    def function_get_addr(self, handler: DIE):
-        return self.get_attribute(handler, 'DW_AT_low_pc')
-
-    def function_get_end_addr(self, handler: DIE):
-        attr: AttributeValue = handler.attributes.get('DW_AT_high_pc', None)
-        if attr is None:
-            return None
-        if attr.form == 'DW_FORM_addr':
-            return Address(attr.value)
-        else:
-            return Address(attr.value + self.function_get_addr(handler))
+    def function_get_ranges(self, handler):
+        return self.get_ranges(handler)
 
     def function_get_name(self, handler: DIE):
         return self.get_attribute(handler, 'DW_AT_name')
@@ -157,14 +156,26 @@ class ReStructurer(DWARFStructurer):
     def function_get_return_type(self, handler):
         return self.get_attribute(handler, 'DW_AT_type')
 
+    def function_get_noreturn(self, handler):
+        return handler.attributes.get('DW_AT_noreturn', False)
+
     def function_get_parameters(self, handler: DIE):
         return self.filter_children(handler, 'DW_TAG_formal_parameter')
 
     def function_get_variables(self, handler):
         return self.filter_children(handler, 'DW_TAG_variable')
 
-    def function_get_noreturn(self, handler):
-        return handler.attributes.get('DW_AT_noreturn', False)
+    def function_get_lexicalblocks(self, handler):
+        return self.filter_children(handler, 'DW_TAG_lexical_block')
+
+    def lexicalblock_get_ranges(self, handler):
+        return self.get_ranges(handler)
+
+    def lexicalblock_get_variables(self, handler):
+        return self.filter_children(handler, 'DW_TAG_variable')
+
+    def lexicalblock_get_lexicalblocks(self, handler):
+        return self.filter_children(handler, 'DW_TAG_lexical_block')
 
     def parameter_get_name(self, handler):
         return self.get_attribute(handler, 'DW_AT_name')
