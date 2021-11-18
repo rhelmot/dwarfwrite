@@ -38,6 +38,12 @@ class DWARFStructurer:
         return []
     def function_get_noreturn(self, handler):
         return False
+    def function_get_inline(self, handler):
+        # returns a DW_INL_* constant
+        return None
+    def function_get_abstract_origin(self, handler):
+        # returns a reference to an inline function object of which this is an inlined instance
+        return None
     def function_get_parameters(self, handler):
         return []
     def function_get_variables(self, handler):
@@ -145,12 +151,13 @@ class DWARFStructurer:
 
             unit_result['children'].extend(self.process_variable(var) for var in self.unit_get_variables(unit))
 
-
+            func_cache = {}
             for func in self.unit_get_functions(unit):
                 func_result = {
                     "tag": enums.ENUM_DW_TAG['DW_TAG_subprogram'],
                     enums.ENUM_DW_AT['DW_AT_name']: self.function_get_name(func),
                     enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.function_get_return_type(func)),
+                    enums.ENUM_DW_AT['DW_AT_inline']: self.function_get_inline(func),
                     "children": [
                         {
                             "tag": enums.ENUM_DW_TAG['DW_TAG_formal_parameter'],
@@ -160,7 +167,9 @@ class DWARFStructurer:
                         for func_param in self.function_get_parameters(func)
                     ]
                 }
+                func_cache[id(func)] = func_result
                 func_result.update(self.process_ranges(self.function_get_ranges(func)))
+                func_result.update(self.process_abstract_origin(self.function_get_abstract_origin(func), func_cache))
                 if self.function_get_noreturn(func):
                     func_result[enums.ENUM_DW_AT['DW_AT_noreturn']] = VALUE_PRESENT
                 func_result['children'].extend(self.process_variable(func_var)
@@ -200,6 +209,15 @@ class DWARFStructurer:
         elif len(ranges) > 1:
             result[enums.ENUM_DW_AT['DW_AT_ranges']] = ranges
         return result
+
+    def process_abstract_origin(self, obj, cache):
+        if obj is None:
+            return {}
+        if id(obj) not in cache:
+            raise Exception("Abstract origin must be processed before it can be referred to. "
+                            "If you really need this, talk to @rhelmot; it can be worked around.")
+            # note to self: this entails keeping another "pending references" list
+        return {enums.ENUM_DW_AT['DW_AT_abstract_origin']: cache[id(obj)]}
 
     def process_type(self, ty):
         if self.type_is_void(ty):
