@@ -92,6 +92,13 @@ class ReStructurer(DWARFStructurer):
             raise Exception('Strange ranges - one but not both of low_pc + high_pc')
         return []
 
+    def get_abstract_origin(self, die):
+        r = self.get_attribute(die, 'DW_AT_abstract_origin')
+        if r is None:
+            return None
+        assert type(r) is int
+        return die.cu.get_DIE_from_refaddr(die.cu.cu_offset + r)
+
     def root_get_units(self):
         return list(self.dwarf.iter_CUs())
 
@@ -163,11 +170,7 @@ class ReStructurer(DWARFStructurer):
         return self.get_attribute(handler, 'DW_AT_inline')
 
     def function_get_abstract_origin(self, handler: DIE):
-        r = self.get_attribute(handler, 'DW_AT_abstract_origin')
-        if r is None:
-            return None
-        assert type(r) is int
-        return handler.cu.get_DIE_from_refaddr(handler.cu.cu_offset + r)
+        return self.get_abstract_origin(handler)
 
     def function_get_parameters(self, handler: DIE):
         return self.filter_children(handler, 'DW_TAG_formal_parameter')
