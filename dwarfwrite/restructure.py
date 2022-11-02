@@ -87,7 +87,7 @@ class ReStructurer(DWARFStructurer):
         if low_pc is not None and high_pc is not None:
             # TODO base addresses???
             fixed_high_pc = high_pc.value if high_pc.form == 'DW_FORM_addr' else low_pc.value + high_pc.value
-            return [RangeEntry(low_pc.value, fixed_high_pc)]
+            return [RangeEntry(None, None, low_pc.value, fixed_high_pc, False)]
         if low_pc is not None or high_pc is not None:
             raise Exception('Strange ranges - one but not both of low_pc + high_pc')
         return []
