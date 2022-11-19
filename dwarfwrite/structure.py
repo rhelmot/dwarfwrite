@@ -34,6 +34,8 @@ class DWARFStructurer:
         return None
     def function_get_name(self, handler):
         return None
+    def function_get_frame_base(self, handler):
+        return None
     def function_get_ranges(self, handler):
         return []
     def function_get_noreturn(self, handler):
@@ -59,6 +61,8 @@ class DWARFStructurer:
     def parameter_get_name(self, handler):
         return None
     def parameter_get_type(self, handler):
+        return None
+    def parameter_get_location(self, handler):
         return None
     def variable_get_name(self, handler):
         return None
@@ -156,6 +160,7 @@ class DWARFStructurer:
                 func_result = {
                     "tag": enums.ENUM_DW_TAG['DW_TAG_subprogram'],
                     enums.ENUM_DW_AT['DW_AT_name']: self.function_get_name(func),
+                    enums.ENUM_DW_AT['DW_AT_frame_base']: self.function_get_frame_base(func),
                     enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.function_get_return_type(func)),
                     enums.ENUM_DW_AT['DW_AT_inline']: self.function_get_inline(func),
                     "children": [
@@ -163,6 +168,7 @@ class DWARFStructurer:
                             "tag": enums.ENUM_DW_TAG['DW_TAG_formal_parameter'],
                             enums.ENUM_DW_AT['DW_AT_name']: self.parameter_get_name(func_param),
                             enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.parameter_get_type(func_param)),
+                            enums.ENUM_DW_AT['DW_AT_location']: self.parameter_get_location(func_param),
                         }
                         for func_param in self.function_get_parameters(func)
                     ]
