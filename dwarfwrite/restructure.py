@@ -160,6 +160,9 @@ class ReStructurer(DWARFStructurer):
     def function_get_name(self, handler: DIE):
         return self.get_attribute(handler, 'DW_AT_name')
 
+    def function_get_frame_base(self, handler: DIE):
+        return self.get_attribute(handler, 'DW_AT_frame_base')
+
     def function_get_return_type(self, handler: DIE):
         return self.get_attribute(handler, 'DW_AT_type')
 
@@ -195,6 +198,9 @@ class ReStructurer(DWARFStructurer):
 
     def parameter_get_type(self, handler):
         return self.get_attribute(handler, 'DW_AT_type')
+
+    def parameter_get_location(self, handler):
+        return self.get_attribute(handler, 'DW_AT_location')
 
     def variable_get_location(self, handler):
         return self.get_attribute(handler, 'DW_AT_location')
