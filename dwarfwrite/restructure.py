@@ -160,6 +160,9 @@ class ReStructurer(DWARFStructurer):
     def function_get_name(self, handler: DIE):
         return self.get_attribute(handler, 'DW_AT_name')
 
+    def function_get_linkage_name(self, handler: DIE):
+        return self.get_attribute(handler, 'DW_AT_linkage_name')
+
     def function_get_frame_base(self, handler: DIE):
         return self.get_attribute(handler, 'DW_AT_frame_base')
 
@@ -201,6 +204,9 @@ class ReStructurer(DWARFStructurer):
 
     def parameter_get_location(self, handler):
         return self.get_attribute(handler, 'DW_AT_location')
+
+    def parameter_get_artificial(self, handler):
+        return handler.attributes.get('DW_AT_artificial', False)
 
     def variable_get_location(self, handler):
         return self.get_attribute(handler, 'DW_AT_location')
@@ -269,6 +275,30 @@ class ReStructurer(DWARFStructurer):
         return self.get_attribute(handler, 'DW_AT_type')
 
     def type_struct_member_offset(self, handler):
+        return self.get_attribute(handler, 'DW_AT_data_member_location')
+
+    def type_class_name(self, handler):
+        if getattr(handler, 'tag', None) == 'DW_TAG_class_type':
+            return self.get_attribute(handler, 'DW_AT_name')
+        return None
+
+    def type_class_size(self, handler):
+        if getattr(handler, 'tag', None) == 'DW_TAG_class_type':
+            return self.get_attribute(handler, 'DW_AT_byte_size')
+        return None
+
+    def type_class_members(self, handler):
+        if getattr(handler, 'tag', None) == 'DW_TAG_class_type':
+            return self.filter_children(handler, 'DW_TAG_member')
+        return None
+
+    def type_class_member_name(self, handler):
+        return self.get_attribute(handler, 'DW_AT_name')
+
+    def type_class_member_type(self, handler):
+        return self.get_attribute(handler, 'DW_AT_type')
+
+    def type_class_member_offset(self, handler):
         return self.get_attribute(handler, 'DW_AT_data_member_location')
 
     def type_union_name(self, handler):

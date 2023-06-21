@@ -11,6 +11,7 @@ class DWARFStructurer:
         self.current_unit = None
         self.type_id_cache = {}
         self.type_cache = {}
+        self.func_cache = {}
 
     def root_get_units(self):
         return []
@@ -33,6 +34,8 @@ class DWARFStructurer:
     def function_get_return_type(self, handler):
         return None
     def function_get_name(self, handler):
+        return None
+    def function_get_linkage_name(self, handler):
         return None
     def function_get_frame_base(self, handler):
         return None
@@ -64,6 +67,8 @@ class DWARFStructurer:
         return None
     def parameter_get_location(self, handler):
         return None
+    def parameter_get_artificial(self, handler):
+        return False
     def variable_get_name(self, handler):
         return None
     def variable_get_type(self, handler):
@@ -75,6 +80,20 @@ class DWARFStructurer:
     def type_const_of(self, handler):
         return None
     def type_volatile_of(self, handler):
+        return None
+    def type_class_name(self, handler):
+        return None
+    def type_class_size(self, handler):
+        return None
+    def type_class_methods(self, handler):
+        return []
+    def type_class_members(self, handler):
+        return []
+    def type_class_member_name(self, handler):
+        return None
+    def type_class_member_type(self, handler):
+        return None
+    def type_class_member_offset(self, handler):
         return None
     def type_struct_name(self, handler):
         return None
@@ -136,6 +155,7 @@ class DWARFStructurer:
     def run(self):
         result = []
         for unit in self.root_get_units():
+            self.func_cache = {}
             unit_result = {
                 "tag": enums.ENUM_DW_TAG['DW_TAG_compile_unit'],
                 enums.ENUM_DW_AT['DW_AT_name']: self.unit_get_filename(unit),
@@ -154,40 +174,43 @@ class DWARFStructurer:
             self.type_cache = {}
 
             unit_result['children'].extend(self.process_variable(var) for var in self.unit_get_variables(unit))
-
-            func_cache = {}
-            for func in self.unit_get_functions(unit):
-                func_result = {
-                    "tag": enums.ENUM_DW_TAG['DW_TAG_subprogram'],
-                    enums.ENUM_DW_AT['DW_AT_name']: self.function_get_name(func),
-                    enums.ENUM_DW_AT['DW_AT_frame_base']: self.function_get_frame_base(func),
-                    enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.function_get_return_type(func)),
-                    enums.ENUM_DW_AT['DW_AT_inline']: self.function_get_inline(func),
-                    "children": [
-                        {
-                            "tag": enums.ENUM_DW_TAG['DW_TAG_formal_parameter'],
-                            enums.ENUM_DW_AT['DW_AT_name']: self.parameter_get_name(func_param),
-                            enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.parameter_get_type(func_param)),
-                            enums.ENUM_DW_AT['DW_AT_location']: self.parameter_get_location(func_param),
-                        }
-                        for func_param in self.function_get_parameters(func)
-                    ]
-                }
-                func_cache[id(func)] = func_result
-                func_result.update(self.process_ranges(self.function_get_ranges(func)))
-                func_result.update(self.process_abstract_origin(self.function_get_abstract_origin(func), func_cache))
-                if self.function_get_noreturn(func):
-                    func_result[enums.ENUM_DW_AT['DW_AT_noreturn']] = VALUE_PRESENT
-                func_result['children'].extend(self.process_variable(func_var)
-                                               for func_var in self.function_get_variables(func))
-                func_result['children'].extend(self.process_lexical_block(block)
-                                               for block in self.function_get_lexicalblocks(func))
-
-                unit_result['children'].append(func_result)
+            unit_result['children'].extend(self.process_function(func) for func in self.unit_get_functions(unit))
 
             result.append(unit_result)
 
         return result
+
+    def process_function(self, func):
+        func_result = {
+            "tag": enums.ENUM_DW_TAG['DW_TAG_subprogram'],
+            enums.ENUM_DW_AT['DW_AT_name']: self.function_get_name(func),
+            enums.ENUM_DW_AT['DW_AT_frame_base']: self.function_get_frame_base(func),
+            enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.function_get_return_type(func)),
+            enums.ENUM_DW_AT['DW_AT_inline']: self.function_get_inline(func),
+            enums.ENUM_DW_AT['DW_AT_linkage_name']: self.function_get_linkage_name(func),
+            "children": [],
+        }
+
+        for func_param in self.function_get_parameters(func):
+            param_result = {
+                "tag": enums.ENUM_DW_TAG['DW_TAG_formal_parameter'],
+                enums.ENUM_DW_AT['DW_AT_name']: self.parameter_get_name(func_param),
+                enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.parameter_get_type(func_param)),
+                enums.ENUM_DW_AT['DW_AT_location']: self.parameter_get_location(func_param),
+            }
+            if self.parameter_get_artificial(func_param):
+                param_result[enums.ENUM_DW_AT['DW_AT_artificial']] = VALUE_PRESENT
+            func_result['children'].append(param_result)
+        self.func_cache[id(func)] = func_result
+        func_result.update(self.process_ranges(self.function_get_ranges(func)))
+        func_result.update(self.process_abstract_origin(self.function_get_abstract_origin(func)))
+        if self.function_get_noreturn(func):
+            func_result[enums.ENUM_DW_AT['DW_AT_noreturn']] = VALUE_PRESENT
+        func_result['children'].extend(self.process_variable(func_var)
+                                       for func_var in self.function_get_variables(func))
+        func_result['children'].extend(self.process_lexical_block(block)
+                                       for block in self.function_get_lexicalblocks(func))
+        return func_result
 
     def process_variable(self, var):
         return {
@@ -216,14 +239,14 @@ class DWARFStructurer:
             result[enums.ENUM_DW_AT['DW_AT_ranges']] = ranges
         return result
 
-    def process_abstract_origin(self, obj, cache):
+    def process_abstract_origin(self, obj):
         if obj is None:
             return {}
-        if id(obj) not in cache:
+        if id(obj) not in self.func_cache:
             raise Exception("Abstract origin must be processed before it can be referred to. "
                             "If you really need this, talk to @rhelmot; it can be worked around.")
             # note to self: this entails keeping another "pending references" list
-        return {enums.ENUM_DW_AT['DW_AT_abstract_origin']: cache[id(obj)]}
+        return {enums.ENUM_DW_AT['DW_AT_abstract_origin']: self.func_cache[id(obj)]}
 
     def process_type(self, ty):
         if self.type_is_void(ty):
@@ -277,6 +300,27 @@ class DWARFStructurer:
                     }
                 ]
             })
+            return
+        name = self.type_class_name(ty)
+        size = self.type_class_size(ty)
+        if name is not None or size is not None:
+            result.update({
+                "tag": enums.ENUM_DW_TAG['DW_TAG_class_type'],
+                enums.ENUM_DW_AT['DW_AT_name']: name,
+                enums.ENUM_DW_AT['DW_AT_byte_size']: size,
+                "children": []
+            })
+            for member in self.type_class_members(ty):
+                result_member = {
+                    "tag": enums.ENUM_DW_TAG['DW_TAG_member'],
+                    enums.ENUM_DW_AT['DW_AT_name']: self.type_class_member_name(member),
+                    enums.ENUM_DW_AT['DW_AT_type']: self.process_type(self.type_class_member_type(member)),
+                    enums.ENUM_DW_AT['DW_AT_data_member_location']: self.type_class_member_offset(member)
+                }
+                result["children"].append(result_member)
+            for method in self.type_class_methods(ty):
+                result_method = self.process_function(method)
+                result['children'].append(result_method)
             return
         name = self.type_struct_name(ty)
         size = self.type_struct_size(ty)
